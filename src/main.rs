@@ -188,19 +188,18 @@ impl GameState {
     }
   }
 
-  fn chain_check(&mut self, p : Pos) {
+  /// Return true if the piece at pos can capture a piece
+  /// in its next move
+  fn can_capture_a_piece(&mut self, p : Pos) -> bool {
     let mut steps = vec!();
     let mut jumps = vec!();
     self.moves_from_pos(p, &mut steps, &mut jumps);
-    if jumps.len() > 0 {
-      self.mode = Mode::Chain(p);
-    }
-    else {
-      self.active_player_swap();
-      self.mode = Mode::StartOfTurn;
-    }
+    jumps.len() > 0
   }
 
+  /// Turn the tile at `pos` into a king if it is
+  /// currently a normal piece, and just reached the
+  /// final row at the other end of the board
   fn king_check(&mut self, p : Pos) {
     let tile_value = self.board.get(p);
     match tile_value {
@@ -261,7 +260,13 @@ impl GameState {
         self.board.set(capture, Tile::Empty);
         self.board.set(to, tile_value);
         self.king_check(to);
-        self.chain_check(to);
+        if self.can_capture_a_piece(to) {
+          self.mode = Mode::Chain(to);
+        }
+        else {
+          self.active_player_swap();
+          self.mode = Mode::StartOfTurn;
+        }
         if self.victory_check() {
           self.mode = Mode::Victory(tile_value.player().unwrap());
         }
