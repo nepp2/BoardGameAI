@@ -396,6 +396,7 @@ fn main() {
               // AI response
               if game.mode == Mode::StartOfTurn {
                 if let Some(a) = choose_action(&mut game, &mut rng, 200, 20) {
+                  // BUG: doesn't complete chains
                   game.apply_action(a);
                 }
               }
@@ -406,6 +407,7 @@ fn main() {
         a => {
           if Some(game.active_player) == a.player() {
             player_actions.clear();
+            // BUG: doesn't prevent player from stepping when there is a capture available
             game.actions_from_pos(pos, &mut player_actions, &mut true);
           }
         }
