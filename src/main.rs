@@ -4,7 +4,7 @@ use std::fmt;
 use piston_window::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 struct Pos {
   x: i32,
   y: i32,
@@ -35,7 +35,7 @@ enum Player {
 }
 
 /// The mode that the game is in.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 enum Mode {
   /// Active player can choose any move
   StartOfTurn,
@@ -133,7 +133,7 @@ impl GameState {
     GameState { board, active_player : WhitePlayer, mode: Mode::StartOfTurn }
   }
 
-  fn moves_from_pos(&self, start : Pos, steps : &mut Vec<Action>, jumps : &mut Vec<Action>) {
+  fn actions_from_pos(&self, start : Pos, actions : &mut Vec<Action>, find_steps : &mut bool) {
     let start_tile = self.board.get(start);
     let possible_moves : &[Pos] = match start_tile {
       White => &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1}],
@@ -151,50 +151,52 @@ impl GameState {
             if p != start_tile.player().unwrap() {
               let jump = pos + *m;
               if let Some(Tile::Empty) = self.board.try_get(jump) {
-                jumps.push(Action::Jump{ from: start, capture: pos, to: jump});
+                if *find_steps {
+                  actions.clear();
+                  *find_steps = false;
+                }
+                actions.push(Action::Jump{ from: start, capture: pos, to: jump});
               }
             }
           }
-          None => steps.push(Action::Step{ from: start, to: pos}),
+          None => {
+            if *find_steps {
+              actions.push(Action::Step{ from: start, to: pos});
+            }
+          }
         }
       }
     }
   }
 
   fn possible_actions(&self) -> Vec<Action> {
-    let mut steps = vec![];
-    let mut jumps = vec![];
+    let mut actions = vec![];
     match self.mode {
       Mode::StartOfTurn => {
+        let mut find_steps = true;
         for (i, p) in self.board.tiles.iter().enumerate() {
           if p.player() == Some(self.active_player) {
             let x = (i as i32) % BOARD_SIZE;
             let y = (i as i32) / BOARD_SIZE;
             let p = Pos{ x, y };
-            self.moves_from_pos(p, &mut steps, &mut jumps);
+            self.actions_from_pos(p, &mut actions, &mut find_steps);
           }
         }
       }
       Mode::Chain(p) => {
-        self.moves_from_pos(p, &mut steps, &mut jumps);
+        self.actions_from_pos(p, &mut actions, &mut false);
       }
       Mode::Victory(_) => (),
     }
-    if jumps.len() > 0 {
-      jumps
-    }
-    else {
-      steps
-    }
+    actions
   }
 
   /// Return true if the piece at pos can capture a piece
   /// in its next move
   fn can_capture_a_piece(&mut self, p : Pos) -> bool {
-    let mut steps = vec!();
-    let mut jumps = vec!();
-    self.moves_from_pos(p, &mut steps, &mut jumps);
-    jumps.len() > 0
+    let mut actions = vec!();
+    self.actions_from_pos(p, &mut actions, &mut false);
+    actions.len() > 0
   }
 
   /// Turn the tile at `pos` into a king if it is
@@ -350,22 +352,64 @@ fn main() {
   let mut window: PistonWindow =
     WindowSettings::new("Checkers", [480, 480])
     .exit_on_esc(true).build().unwrap();
+
+  let mut mouse_pos = [0.0, 0.0];
+  let mut player_actions = vec![];
   
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
-        if game.active_player == BlackPlayer {
-          if let Some(a) = choose_action(&mut game, &mut rng, 200, 20) {
-            game.apply_action(a);
-          }
+        let (iterations, depth) = match game.active_player {
+          BlackPlayer => (100, 20),
+          WhitePlayer => (100, 500),
         };
+        if let Some(a) = choose_action(&mut game, &mut rng, iterations, depth) {
+          game.apply_action(a);
+        }
+      }
+      if key == Key::R {
+        if let Some(a) = random_action(&mut game, &mut rng) {
+          game.apply_action(a);
+        }
       }
       if key == Key::Return {
         game = GameState::new();
       }
     }
+    if let Some(p) = event.mouse_cursor_args() {
+      mouse_pos = p;
+    }
     if let Some(Button::Mouse(MouseButton::Left)) = event.press_args() {
-      // implement human interaction
+      let x = (mouse_pos[0] / 60.0) as i32;
+      let y = (mouse_pos[1] / 60.0) as i32;
+      let pos = Pos{x, y};
+      match game.board.get(pos) {
+        Tile::Empty => {
+          for a in player_actions.iter().cloned() {
+            let to = match a {
+              Action::Step { to, ..} => to,
+              Action::Jump { to, ..} => to,
+            };
+            if to == pos {
+              game.apply_action(a);
+              player_actions.clear();
+              // AI response
+              if game.mode == Mode::StartOfTurn {
+                if let Some(a) = choose_action(&mut game, &mut rng, 200, 20) {
+                  game.apply_action(a);
+                }
+              }
+              break;
+            }
+          }
+        }
+        a => {
+          if Some(game.active_player) == a.player() {
+            player_actions.clear();
+            game.actions_from_pos(pos, &mut player_actions, &mut true);
+          }
+        }
+      }
     }
     window.draw_2d(&event, |context, graphics, _device| {
       clear([1.0; 4], graphics);
@@ -391,6 +435,34 @@ fn main() {
               c, [x as f64 * 60.0 + 5.0, y as f64 * 60.0 + 5.0, 50.0, 50.0],
               context.transform,
               graphics);
+          }
+        }
+      }
+      for a in player_actions.iter() {
+        match a {
+          Action::Jump { from, capture, to } => {
+            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
+              .draw(
+                [from.x as f64 * 60.0, from.y as f64 * 60.0, 60.0, 60.0],
+                &DrawState::default(), context.transform, graphics);
+            Rectangle::new_border([1.0, 0.0, 1.0, 1.0], 2.0)
+              .draw(
+                [capture.x as f64 * 60.0, capture.y as f64 * 60.0, 60.0, 60.0],
+                &DrawState::default(), context.transform, graphics);
+            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
+              .draw(
+                [to.x as f64 * 60.0, to.y as f64 * 60.0, 60.0, 60.0],
+                &DrawState::default(), context.transform, graphics);
+          }
+          Action::Step { from, to } => {
+            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
+              .draw(
+                [from.x as f64 * 60.0, from.y as f64 * 60.0, 60.0, 60.0],
+                &DrawState::default(), context.transform, graphics);
+            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
+              .draw(
+                [to.x as f64 * 60.0, to.y as f64 * 60.0, 60.0, 60.0],
+                &DrawState::default(), context.transform, graphics);
           }
         }
       }
