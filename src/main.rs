@@ -1,6 +1,7 @@
 
 use std::ops::Add;
 use std::fmt;
+use piston_window::*;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 #[derive(Copy, Clone, Debug)]
@@ -11,7 +12,6 @@ struct Pos {
 
 impl Add for Pos {
   type Output = Pos;
-
   fn add(self, other: Pos) -> Pos {
     Pos { x: self.x + other.x, y: self.y + other.y }
   }
@@ -293,9 +293,7 @@ impl fmt::Display for GameState {
   }
 }
 
-use piston_window::*;
-
-fn rollout(game : &mut GameState, rng : &mut StdRng, max_depth : i32) -> f64 {
+fn rollout(game : &mut GameState, rng : &mut StdRng, max_depth : i32) {
   for _ in 0..max_depth {
     let actions = game.possible_actions();
     if actions.len() > 0 {
@@ -306,21 +304,35 @@ fn rollout(game : &mut GameState, rng : &mut StdRng, max_depth : i32) -> f64 {
       break;
     }
   }
-  let (white, black) = game.piece_count();
-  (white - black) as f64
 }
 
-fn choose_white_action(game : &GameState, rng : &mut StdRng) -> Option<Action> {
+fn random_action(game : &GameState, rng : &mut StdRng) -> Option<Action> {
   let actions = game.possible_actions();
-  let mut best_score = 0.0;
+  if actions.len() > 0 {
+    let i: usize = rng.gen_range(0, actions.len());
+    Some(actions[i])
+  }
+  else {
+    None
+  }
+}
+
+fn choose_action(game : &GameState, rng : &mut StdRng, iterations : i32, depth : i32) -> Option<Action> {
+  let player = game.active_player;
+  let actions = game.possible_actions();
+  let mut best_score = -99999999999999.0;
   let mut best_action = None;
   for a in actions {
     let mut score = 0.0;
-    for _ in 0..10 {
-      let mut g = game.clone();
-      g.apply_action(a);
-      score += rollout(&mut g, rng, 10);
+    for _ in 0..iterations {
+      let mut game = game.clone();
+      game.apply_action(a);
+      rollout(&mut game, rng, depth);
+      let (white, black) = game.piece_count();
+      score += (white - black) as f64;
     }
+    let score =
+      match player { WhitePlayer => score, BlackPlayer => -score };
     if score > best_score {
       best_score = score;
       best_action = Some(a);
@@ -338,27 +350,22 @@ fn main() {
   let mut window: PistonWindow =
     WindowSettings::new("Checkers", [480, 480])
     .exit_on_esc(true).build().unwrap();
+  
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
-        let a =
-          if game.active_player == WhitePlayer {
-            choose_white_action(&mut game, &mut rng)
+        if game.active_player == BlackPlayer {
+          if let Some(a) = choose_action(&mut game, &mut rng, 200, 20) {
+            game.apply_action(a);
           }
-          else {
-            let actions = game.possible_actions();
-            if actions.len() > 0 {
-              let i: usize = rng.gen_range(0, actions.len());
-              Some(actions[i])
-            }
-            else {
-              None
-            }
-          };
-        if let Some(a) = a {
-          game.apply_action(a);
-        }
+        };
       }
+      if key == Key::Return {
+        game = GameState::new();
+      }
+    }
+    if let Some(Button::Mouse(MouseButton::Left)) = event.press_args() {
+      // implement human interaction
     }
     window.draw_2d(&event, |context, graphics, _device| {
       clear([1.0; 4], graphics);
