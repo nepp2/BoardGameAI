@@ -2,10 +2,12 @@
 use std::ops::Add;
 use std::fmt;
 use piston_window::*;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{SeedableRng, rngs::StdRng};
+
+use crate::agents::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-struct Pos {
+pub struct Pos {
   x: i32,
   y: i32,
 }
@@ -102,21 +104,21 @@ impl Board {
 }
 
 #[derive(Debug, Copy, Clone)]
-enum Action {
+pub enum Action {
   Step { from : Pos, to : Pos },
   Jump { from : Pos, capture : Pos, to : Pos },
 }
 
 #[derive(Clone)]
-struct GameState {
+pub struct Checkers {
   board : Board,
   active_player : Player,
   mode : Mode,
 }
 
-impl GameState {
+impl Checkers {
 
-  fn new() -> GameState {
+  fn new() -> Checkers {
     let mut board = Board::new();
     for y in 0..3 {
       for i in (0..BOARD_SIZE).step_by(2) {
@@ -130,7 +132,7 @@ impl GameState {
         board.set(Pos{x, y}, Black);
       }
     }
-    GameState { board, active_player : WhitePlayer, mode: Mode::StartOfTurn }
+    Checkers { board, active_player : WhitePlayer, mode: Mode::StartOfTurn }
   }
 
   fn actions_from_pos(&self, start : Pos, actions : &mut Vec<Action>, find_steps : &mut bool) {
@@ -167,28 +169,6 @@ impl GameState {
         }
       }
     }
-  }
-
-  fn possible_actions(&self) -> Vec<Action> {
-    let mut actions = vec![];
-    match self.mode {
-      Mode::StartOfTurn => {
-        let mut find_steps = true;
-        for (i, p) in self.board.tiles.iter().enumerate() {
-          if p.player() == Some(self.active_player) {
-            let x = (i as i32) % BOARD_SIZE;
-            let y = (i as i32) / BOARD_SIZE;
-            let p = Pos{ x, y };
-            self.actions_from_pos(p, &mut actions, &mut find_steps);
-          }
-        }
-      }
-      Mode::Chain(p) => {
-        self.actions_from_pos(p, &mut actions, &mut false);
-      }
-      Mode::Victory(_) => (),
-    }
-    actions
   }
 
   /// Return true if the piece at pos can capture a piece
@@ -245,9 +225,39 @@ impl GameState {
       Player::BlackPlayer => self.active_player = Player::WhitePlayer,
     }
   }
+}
 
-  fn apply_action(&mut self, a : Action) {
-    match a {
+impl Game for Checkers {
+  type Action = Action;
+
+  fn possible_actions(&self, actions : &mut Vec<Action>) {
+    match self.mode {
+      Mode::StartOfTurn => {
+        let mut find_steps = true;
+        for (i, p) in self.board.tiles.iter().enumerate() {
+          if p.player() == Some(self.active_player) {
+            let x = (i as i32) % BOARD_SIZE;
+            let y = (i as i32) / BOARD_SIZE;
+            let p = Pos{ x, y };
+            self.actions_from_pos(p, actions, &mut find_steps);
+          }
+        }
+      }
+      Mode::Chain(p) => {
+        self.actions_from_pos(p, actions, &mut false);
+      }
+      Mode::Victory(_) => (),
+    }
+  }
+
+  fn active_player(&self) -> i64 {
+    match self.active_player {
+      WhitePlayer => 0, BlackPlayer => 1
+    }
+  }
+
+  fn apply_action(&mut self, a : &Action) {
+    match *a {
       Action::Step { from, to } => {
         let tile_value = self.board.get(from);
         self.board.set(from, Tile::Empty);
@@ -275,9 +285,18 @@ impl GameState {
       }
     }
   }
+
+  fn player_score(&self, player : i64) -> f64 {
+    let (white, black) = self.piece_count();
+    match player {
+      0 => (white - black) as f64,
+      1 => (black - white) as f64,
+      _ => panic!("checkers is a two-player game"),
+    }
+  }
 }
 
-impl fmt::Display for GameState {
+impl fmt::Display for Checkers {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     for y in 0..BOARD_SIZE {
       write!(f, "|")?;
@@ -295,58 +314,10 @@ impl fmt::Display for GameState {
   }
 }
 
-fn rollout(game : &mut GameState, rng : &mut StdRng, max_depth : i32) {
-  for _ in 0..max_depth {
-    let actions = game.possible_actions();
-    if actions.len() > 0 {
-      let i: usize = rng.gen_range(0, actions.len());
-      game.apply_action(actions[i]);
-    }
-    else {
-      break;
-    }
-  }
-}
-
-fn random_action(game : &GameState, rng : &mut StdRng) -> Option<Action> {
-  let actions = game.possible_actions();
-  if actions.len() > 0 {
-    let i: usize = rng.gen_range(0, actions.len());
-    Some(actions[i])
-  }
-  else {
-    None
-  }
-}
-
-fn choose_action(game : &GameState, rng : &mut StdRng, iterations : i32, depth : i32) -> Option<Action> {
-  let player = game.active_player;
-  let actions = game.possible_actions();
-  let mut best_score = -99999999999999.0;
-  let mut best_action = None;
-  for a in actions {
-    let mut score = 0.0;
-    for _ in 0..iterations {
-      let mut game = game.clone();
-      game.apply_action(a);
-      rollout(&mut game, rng, depth);
-      let (white, black) = game.piece_count();
-      score += (white - black) as f64;
-    }
-    let score =
-      match player { WhitePlayer => score, BlackPlayer => -score };
-    if score > best_score {
-      best_score = score;
-      best_action = Some(a);
-    }
-  }
-  best_action
-}
-
-pub fn play_checkers() {
+pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
 
   println!("Checkers!");
-  let mut game = GameState::new();
+  let mut game = Checkers::new();
   let mut rng = StdRng::from_entropy(); //StdRng::seed_from_u64(0);
 
   let mut window: PistonWindow =
@@ -359,21 +330,13 @@ pub fn play_checkers() {
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
-        let (iterations, depth) = match game.active_player {
-          BlackPlayer => (100, 20),
-          WhitePlayer => (100, 500),
-        };
-        if let Some(a) = choose_action(&mut game, &mut rng, iterations, depth) {
-          game.apply_action(a);
-        }
-      }
-      if key == Key::R {
-        if let Some(a) = random_action(&mut game, &mut rng) {
-          game.apply_action(a);
+        let player = game.active_player() as usize;
+        if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
+          game.apply_action(&a);
         }
       }
       if key == Key::Return {
-        game = GameState::new();
+        game = Checkers::new();
       }
     }
     if let Some(p) = event.mouse_cursor_args() {
@@ -391,13 +354,14 @@ pub fn play_checkers() {
               Action::Jump { to, ..} => to,
             };
             if to == pos {
-              game.apply_action(a);
+              game.apply_action(&a);
               player_actions.clear();
               // AI response
               if game.mode == Mode::StartOfTurn {
-                if let Some(a) = choose_action(&mut game, &mut rng, 200, 20) {
+                let player = game.active_player() as usize;
+                if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
                   // BUG: doesn't complete chains
-                  game.apply_action(a);
+                  game.apply_action(&a);
                 }
               }
               break;
@@ -440,31 +404,21 @@ pub fn play_checkers() {
           }
         }
       }
+      fn draw_border(p : Pos, c : [f32 ; 4], context : &Context, graphics : &mut G2d) {
+        Rectangle::new_border(c, 2.0)
+          .draw([p.x as f64 * 60.0, p.y as f64 * 60.0, 60.0, 60.0],
+            &DrawState::default(), context.transform, graphics);        
+      }
       for a in player_actions.iter() {
-        match a {
+        match *a {
           Action::Jump { from, capture, to } => {
-            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
-              .draw(
-                [from.x as f64 * 60.0, from.y as f64 * 60.0, 60.0, 60.0],
-                &DrawState::default(), context.transform, graphics);
-            Rectangle::new_border([1.0, 0.0, 1.0, 1.0], 2.0)
-              .draw(
-                [capture.x as f64 * 60.0, capture.y as f64 * 60.0, 60.0, 60.0],
-                &DrawState::default(), context.transform, graphics);
-            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
-              .draw(
-                [to.x as f64 * 60.0, to.y as f64 * 60.0, 60.0, 60.0],
-                &DrawState::default(), context.transform, graphics);
+            draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+            draw_border(capture, [1.0, 0.0, 1.0, 1.0], &context, graphics);
+            draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
           }
           Action::Step { from, to } => {
-            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
-              .draw(
-                [from.x as f64 * 60.0, from.y as f64 * 60.0, 60.0, 60.0],
-                &DrawState::default(), context.transform, graphics);
-            Rectangle::new_border([0.0, 0.0, 1.0, 1.0], 2.0)
-              .draw(
-                [to.x as f64 * 60.0, to.y as f64 * 60.0, 60.0, 60.0],
-                &DrawState::default(), context.transform, graphics);
+            draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+            draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
           }
         }
       }
