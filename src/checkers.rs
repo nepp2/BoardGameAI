@@ -358,21 +358,30 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
               player_actions.clear();
               // AI response
               if game.mode == Mode::StartOfTurn {
-                let player = game.active_player() as usize;
-                if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
-                  // BUG: doesn't complete chains
-                  game.apply_action(&a);
+                let player = game.active_player();
+                loop {
+                  // loop to complete chains, if needed
+                  if let Some(a) = agents[player as usize].choose_action(&mut game, &mut rng) {
+                    game.apply_action(&a);
+                    if let Mode::Chain(_) = game.mode {
+                      continue;
+                    }
+                  }
+                  break;
                 }
               }
               break;
             }
           }
         }
-        a => {
-          if Some(game.active_player) == a.player() {
+        tile => {
+          if Some(game.active_player) == tile.player() {
             player_actions.clear();
-            // BUG: doesn't prevent player from stepping when there is a capture available
-            game.actions_from_pos(pos, &mut player_actions, &mut true);
+            game.possible_actions(&mut player_actions);
+            player_actions.retain(|a| match a {
+              Action::Jump{from, ..} => *from == pos,
+              Action::Step{from, ..} => *from == pos,
+            });
           }
         }
       }
