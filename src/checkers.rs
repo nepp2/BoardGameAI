@@ -1,23 +1,10 @@
 
-use std::ops::Add;
 use std::fmt;
 use piston_window::*;
 use rand::{SeedableRng, rngs::StdRng};
 
+use crate::utils::*;
 use crate::agents::*;
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Pos {
-  x: i32,
-  y: i32,
-}
-
-impl Add for Pos {
-  type Output = Pos;
-  fn add(self, other: Pos) -> Pos {
-    Pos { x: self.x + other.x, y: self.y + other.y }
-  }
-}
 
 /// Holds the contents of a tile
 #[derive(Copy, Clone, PartialEq)]
@@ -69,39 +56,7 @@ impl Tile {
 /// The size of the board (which is assumed to be square)
 const BOARD_SIZE : i32 = 8;
 
-/// Stores the tiles. This is separated out to add convenient
-/// access methods, and so it can be optimised later.
-#[derive(Clone)]
-struct Board {
-  tiles : [Tile ; (BOARD_SIZE * BOARD_SIZE) as usize]
-}
-
-impl Board {
-  fn new() -> Board {
-    Board { tiles : [Empty ; (BOARD_SIZE * BOARD_SIZE) as usize] }
-  }
-
-  fn index(&self, x : i32, y : i32) -> usize {
-    (y * BOARD_SIZE + x) as usize
-  }
-
-  fn try_get(&self, p : Pos) -> Option<Tile> {
-    if p.x < 0 || p.x >= BOARD_SIZE || p.y < 0 || p.y >= BOARD_SIZE {
-      None
-    }
-    else {
-      Some(self.get(p))
-    }
-  }
-
-  fn get(&self, p : Pos) -> Tile {
-    self.tiles[self.index(p.x, p.y)]
-  }
-
-  fn set(&mut self, p : Pos, t : Tile) {
-    self.tiles[self.index(p.x, p.y)] = t;
-  }
-}
+type Board = crate::utils::Board<Tile>;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Action {
@@ -119,7 +74,7 @@ pub struct Checkers {
 impl Checkers {
 
   fn new() -> Checkers {
-    let mut board = Board::new();
+    let mut board = Board::new(Tile::Empty, BOARD_SIZE);
     for y in 0..3 {
       for i in (0..BOARD_SIZE).step_by(2) {
         let x = i + (y % 2);
@@ -207,7 +162,7 @@ impl Checkers {
   fn piece_count(&self) -> (i32, i32) {
     let mut white = 0;
     let mut black = 0;
-    for tile in self.board.tiles.iter() {
+    for tile in self.board.iter() {
       match tile {
         Tile::Black => black += 1,
         Tile::BlackKing => black += 2,
@@ -234,7 +189,7 @@ impl Game for Checkers {
     match self.mode {
       Mode::StartOfTurn => {
         let mut find_steps = true;
-        for (i, p) in self.board.tiles.iter().enumerate() {
+        for (i, p) in self.board.iter().enumerate() {
           if p.player() == Some(self.active_player) {
             let x = (i as i32) % BOARD_SIZE;
             let y = (i as i32) / BOARD_SIZE;
@@ -314,6 +269,54 @@ impl fmt::Display for Checkers {
   }
 }
 
+
+fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Context, graphics : &mut G2d) {
+  clear([1.0; 4], graphics);
+  for y in 0..BOARD_SIZE {
+    for i in (0..BOARD_SIZE).step_by(2) {
+      let x = i + (y % 2);
+      rectangle(
+        [0.0, 0.0, 0.0, 1.0], // black
+        [x as f64 * 60.0, y as f64 * 60.0, 60.0, 60.0],
+        context.transform,
+        graphics);
+
+      let tile = game.board.get(Pos{x, y});
+      let colour = match tile {
+        Tile::Black => Some([1.0, 0.0, 0.0, 1.0]),
+        Tile::White => Some([0.0, 1.0, 0.0, 1.0]),
+        Tile::BlackKing => Some([0.5, 0.0, 0.0, 1.0]),
+        Tile::WhiteKing => Some([0.0, 0.5, 0.0, 1.0]),
+        Empty => None,
+      };
+      if let Some(c) = colour {
+        ellipse(
+          c, [x as f64 * 60.0 + 5.0, y as f64 * 60.0 + 5.0, 50.0, 50.0],
+          context.transform,
+          graphics);
+      }
+    }
+  }
+  fn draw_border(p : Pos, c : [f32 ; 4], context : &Context, graphics : &mut G2d) {
+    Rectangle::new_border(c, 2.0)
+      .draw([p.x as f64 * 60.0, p.y as f64 * 60.0, 60.0, 60.0],
+        &DrawState::default(), context.transform, graphics);        
+  }
+  for a in player_actions {
+    match *a {
+      Action::Jump { from, capture, to } => {
+        draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+        draw_border(capture, [1.0, 0.0, 1.0, 1.0], &context, graphics);
+        draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+      }
+      Action::Step { from, to } => {
+        draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+        draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
+      }
+    }
+  }
+}
+
 pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
 
   println!("Checkers!");
@@ -342,11 +345,13 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
     if let Some(p) = event.mouse_cursor_args() {
       mouse_pos = p;
     }
+    // Handle mouse clicks
     if let Some(Button::Mouse(MouseButton::Left)) = event.press_args() {
       let x = (mouse_pos[0] / 60.0) as i32;
       let y = (mouse_pos[1] / 60.0) as i32;
       let pos = Pos{x, y};
       match game.board.get(pos) {
+        // Player clicked an empty tile
         Tile::Empty => {
           for a in player_actions.iter().cloned() {
             let to = match a {
@@ -374,6 +379,7 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
             }
           }
         }
+        // Player clicked an occupied tile
         tile => {
           if Some(game.active_player) == tile.player() {
             player_actions.clear();
@@ -386,51 +392,9 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
         }
       }
     }
+    // Handle draw events
     window.draw_2d(&event, |context, graphics, _device| {
-      clear([1.0; 4], graphics);
-      for y in 0..BOARD_SIZE {
-        for i in (0..BOARD_SIZE).step_by(2) {
-          let x = i + (y % 2);
-          rectangle(
-            [0.0, 0.0, 0.0, 1.0], // black
-            [x as f64 * 60.0, y as f64 * 60.0, 60.0, 60.0],
-            context.transform,
-            graphics);
-
-          let tile = game.board.get(Pos{x, y});
-          let colour = match tile {
-            Tile::Black => Some([1.0, 0.0, 0.0, 1.0]),
-            Tile::White => Some([0.0, 1.0, 0.0, 1.0]),
-            Tile::BlackKing => Some([0.5, 0.0, 0.0, 1.0]),
-            Tile::WhiteKing => Some([0.0, 0.5, 0.0, 1.0]),
-            Empty => None,
-          };
-          if let Some(c) = colour {
-            ellipse(
-              c, [x as f64 * 60.0 + 5.0, y as f64 * 60.0 + 5.0, 50.0, 50.0],
-              context.transform,
-              graphics);
-          }
-        }
-      }
-      fn draw_border(p : Pos, c : [f32 ; 4], context : &Context, graphics : &mut G2d) {
-        Rectangle::new_border(c, 2.0)
-          .draw([p.x as f64 * 60.0, p.y as f64 * 60.0, 60.0, 60.0],
-            &DrawState::default(), context.transform, graphics);        
-      }
-      for a in player_actions.iter() {
-        match *a {
-          Action::Jump { from, capture, to } => {
-            draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
-            draw_border(capture, [1.0, 0.0, 1.0, 1.0], &context, graphics);
-            draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
-          }
-          Action::Step { from, to } => {
-            draw_border(from, [0.0, 0.0, 1.0, 1.0], &context, graphics);
-            draw_border(to, [0.0, 0.0, 1.0, 1.0], &context, graphics);
-          }
-        }
-      }
+      draw_checkers(&game, &player_actions, &context, graphics)
     });
   }
 }
