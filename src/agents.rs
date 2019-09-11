@@ -1,8 +1,9 @@
 
 use rand::{Rng, rngs::StdRng};
+use std::fmt::Debug;
 
 pub trait Game : Clone {
-  type Action;
+  type Action : Debug;
 
   fn possible_actions(&self, actions : &mut Vec<Self::Action>);
   fn active_player(&self) -> i64;

@@ -1,5 +1,5 @@
 
-use std::ops::Add;
+use std::ops::{Add, AddAssign, Neg};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pos {
@@ -11,6 +11,19 @@ impl Add for Pos {
   type Output = Pos;
   fn add(self, other: Pos) -> Pos {
     Pos { x: self.x + other.x, y: self.y + other.y }
+  }
+}
+
+impl Neg for Pos {
+  type Output = Pos;
+  fn neg(self) -> Pos {
+    Pos { x: -self.x, y: -self.y }
+  }
+}
+
+impl AddAssign for Pos {
+  fn add_assign(&mut self, other: Pos) {
+    *self = *self + other;
   }
 }
 

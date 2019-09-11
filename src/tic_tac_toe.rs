@@ -40,10 +40,6 @@ impl TicTacToe {
     TicTacToe { board, active_player : WhitePlayer, length_to_win, victory: None }
   }
 
-  fn victory_check(&self, p : Pos) {
-    // TODO: implement me
-  }
-
   fn active_player_swap(&mut self) {
     match self.active_player {
       Player::WhitePlayer => self.active_player = Player::BlackPlayer,
@@ -77,14 +73,33 @@ impl Game for TicTacToe {
 
   fn apply_action(&mut self, a : &Action) {
     self.board.set(a.pos, Some(a.player));
-    self.victory_check(a.pos);
+    // victory check
+    let dirs = &[ Pos { x: 1, y : 0}, Pos { x: 0, y : 1}, Pos { x: 1, y : 1}, Pos { x: 1, y : -1} ];
+    for &d in dirs {
+      let forwards_and_back = &[ d, -d ];
+      let mut count = 1;
+      for &d in forwards_and_back {
+        let mut p = a.pos + d;
+        while self.board.try_get(p) == Some(Some(a.player)) {
+          p += d;
+          count += 1;
+        }
+      }
+      if count >= self.length_to_win {
+        self.victory = Some(a.player);
+        break;
+      }
+    }
+    // Swap active player
     self.active_player_swap();
   }
 
   fn player_score(&self, player : i64) -> f64 {
     match (self.victory, player) {
-      (Some(WhitePlayer), 0) => 1.0,
-      (Some(BlackPlayer), 1) => 1.0,
+      (Some(WhitePlayer), 0) => 0.0,
+      (Some(WhitePlayer), 1) => -1.0,
+      (Some(BlackPlayer), 1) => 0.0,
+      (Some(BlackPlayer), 0) => -1.0,
       _ => 0.0,
     }
   }
@@ -93,14 +108,15 @@ impl Game for TicTacToe {
 fn draw_tic_tac_toe(game : &TicTacToe, context : &Context, graphics : &mut G2d) {
   clear([1.0; 4], graphics);
   for y in 0..game.board.size {
-    for i in (0..game.board.size).step_by(2) {
-      let x = i + (y % 2);
-      rectangle(
-        [0.0, 0.0, 0.0, 1.0], // black
-        [x as f64 * 60.0, y as f64 * 60.0, 60.0, 60.0],
-        context.transform,
-        graphics);
-
+    for x in 0..game.board.size {
+      let is_black = (x + (y % 2)) % 2 == 0;
+      if is_black {
+        rectangle(
+          [0.0, 0.0, 0.0, 1.0], // black
+          [x as f64 * 60.0, y as f64 * 60.0, 60.0, 60.0],
+          context.transform,
+          graphics);
+      }
       let tile = game.board.get(Pos{x, y});
       let colour = match tile {
         Some(BlackPlayer) => Some([1.0, 0.0, 0.0, 1.0]),
