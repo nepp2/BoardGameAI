@@ -9,12 +9,14 @@ pub trait Game : Clone {
   fn active_player(&self) -> i64;
   fn apply_action(&mut self, a : &Self::Action);
   fn player_score(&self, player : i64) -> f64;
+  fn winner(&self) -> Option<i64>;
 }
 
-pub trait GameAgent<G : Game> {
+pub trait GameAgent<G : Game> : Clone {
   fn choose_action(&mut self, game: &G, rng: &mut StdRng) -> Option<G::Action>;
 }
 
+#[derive(Clone)]
 pub struct RandomAgent {}
 
 impl <G : Game> GameAgent<G> for RandomAgent {
@@ -31,6 +33,26 @@ impl <G : Game> GameAgent<G> for RandomAgent {
   }
 }
 
+/// Takes one action for whichever player has the next turn.
+/// Returns true if an action was taken.
+pub fn agent_action<A, B, G>(a : &mut A, b : &mut B, g : &mut G, rng: &mut StdRng) -> bool
+  where A : GameAgent<G>, B : GameAgent<G>, G : Game
+{
+  let a = match g.active_player() {
+    0 => a.choose_action(g, rng),
+    1 => b.choose_action(g, rng),
+    _ => panic!("no agent found for player"),
+  };
+  if let Some(a) = a {
+    g.apply_action(&a);
+    true
+  }
+  else {
+    false
+  }
+}
+
+#[derive(Clone)]
 pub struct RolloutAgent {
   pub iterations : i64,
   pub depth : i64,

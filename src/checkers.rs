@@ -73,7 +73,7 @@ pub struct Checkers {
 
 impl Checkers {
 
-  fn new() -> Checkers {
+  pub fn new() -> Checkers {
     let mut board = Board::new(Tile::Empty, BOARD_SIZE);
     for y in 0..3 {
       for i in (0..BOARD_SIZE).step_by(2) {
@@ -249,6 +249,14 @@ impl Game for Checkers {
       _ => panic!("checkers is a two-player game"),
     }
   }
+
+  fn winner(&self) -> Option<i64> {
+    match self.mode {
+      Mode::Victory(WhitePlayer) => Some(0),
+      Mode::Victory(BlackPlayer) => Some(1),
+      _ => None,
+    }
+  }
 }
 
 impl fmt::Display for Checkers {
@@ -317,7 +325,9 @@ fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Contex
   }
 }
 
-pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
+pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
+  where A : GameAgent<Checkers>, B : GameAgent<Checkers>
+{
 
   println!("Checkers!");
   let mut game = Checkers::new();
@@ -333,10 +343,7 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
-        let player = game.active_player() as usize;
-        if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
-          game.apply_action(&a);
-        }
+        agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng);
       }
       if key == Key::Return {
         game = Checkers::new();
@@ -363,11 +370,9 @@ pub fn play_checkers(agents : [&mut dyn GameAgent<Checkers> ; 2]){
               player_actions.clear();
               // AI response
               if game.mode == Mode::StartOfTurn {
-                let player = game.active_player();
                 loop {
                   // loop to complete chains, if needed
-                  if let Some(a) = agents[player as usize].choose_action(&mut game, &mut rng) {
-                    game.apply_action(&a);
+                  if agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng) {
                     if let Mode::Chain(_) = game.mode {
                       continue;
                     }

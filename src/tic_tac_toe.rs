@@ -103,6 +103,10 @@ impl Game for TicTacToe {
       _ => 0.0,
     }
   }
+
+  fn winner(&self) -> Option<i64> {
+    self.victory.map(|p| match p { WhitePlayer => 0, BlackPlayer => 1 })
+  }
 }
 
 fn draw_tic_tac_toe(game : &TicTacToe, context : &Context, graphics : &mut G2d) {
@@ -113,7 +117,7 @@ fn draw_tic_tac_toe(game : &TicTacToe, context : &Context, graphics : &mut G2d) 
       if is_black {
         rectangle(
           [0.0, 0.0, 0.0, 1.0], // black
-          [x as f64 * 60.0, y as f64 * 60.0, 60.0, 60.0],
+          [x as f64 * TILE_SIZE, y as f64 * TILE_SIZE, TILE_SIZE, TILE_SIZE],
           context.transform,
           graphics);
       }
@@ -125,21 +129,28 @@ fn draw_tic_tac_toe(game : &TicTacToe, context : &Context, graphics : &mut G2d) 
       };
       if let Some(c) = colour {
         ellipse(
-          c, [x as f64 * 60.0 + 5.0, y as f64 * 60.0 + 5.0, 50.0, 50.0],
+          c, [x as f64 * TILE_SIZE + 5.0, y as f64 * TILE_SIZE + 5.0, TILE_SIZE - 10.0, TILE_SIZE - 10.0],
           context.transform, graphics);
       }
     }
   }
 }
 
-pub fn play_game(agents : [&mut dyn GameAgent<TicTacToe> ; 2]){
+static TILE_SIZE : f64 = 80.0;
 
-  println!("Checkers!");
-  let mut game = TicTacToe::new(3, 3);
+pub fn play_game<A, B>(mut agent_a : A, mut agent_b : B)
+  where A : GameAgent<TicTacToe>, B : GameAgent<TicTacToe>
+{
+  let board_size = 3;
+  let length_to_win = 3;
+  let board_pixels = board_size as f64 * TILE_SIZE;
+
+  println!("Tic tac toe!");
+  let mut game = TicTacToe::new(board_size, length_to_win);
   let mut rng = StdRng::from_entropy(); //StdRng::seed_from_u64(0);
 
   let mut window: PistonWindow =
-    WindowSettings::new("Checkers", [480, 480])
+    WindowSettings::new("Tic Tac Toe", [board_pixels, board_pixels])
     .exit_on_esc(true).build().unwrap();
 
   let mut mouse_pos = [0.0, 0.0];
@@ -147,10 +158,7 @@ pub fn play_game(agents : [&mut dyn GameAgent<TicTacToe> ; 2]){
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
-        let player = game.active_player() as usize;
-        if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
-          game.apply_action(&a);
-        }
+        agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng);
       }
       if key == Key::Return {
         game = TicTacToe::new(game.board.size, game.length_to_win);
@@ -161,17 +169,14 @@ pub fn play_game(agents : [&mut dyn GameAgent<TicTacToe> ; 2]){
     }
     // Handle mouse clicks
     if let Some(Button::Mouse(MouseButton::Left)) = event.press_args() {
-      let x = (mouse_pos[0] / 60.0) as i32;
-      let y = (mouse_pos[1] / 60.0) as i32;
+      let x = (mouse_pos[0] / TILE_SIZE) as i32;
+      let y = (mouse_pos[1] / TILE_SIZE) as i32;
       let pos = Pos{x, y};
       if game.board.get(pos).is_none() {
         let a = Action { pos, player: game.active_player };
         game.apply_action(&a);
         // AI response
-        let player = game.active_player as usize;
-        if let Some(a) = agents[player].choose_action(&mut game, &mut rng) {
-          game.apply_action(&a);
-        }
+        agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng);
       }
     }
     // Handle draw events
