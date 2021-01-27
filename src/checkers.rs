@@ -1,26 +1,30 @@
 
-use std::fmt;
 use piston_window::*;
 use rand::{SeedableRng, rngs::StdRng};
 
 use crate::utils::*;
 use crate::agents::*;
 
+
 /// Holds the contents of a tile
 #[derive(Copy, Clone, PartialEq)]
 enum Tile {
-  White,
-  Black,
-  WhiteKing,
-  BlackKing,
+  Occupied(Player, Piece),
   Empty,
+}
+
+/// Holds the contents of a tile
+#[derive(Copy, Clone, PartialEq)]
+enum Piece {
+  Pawn,
+  King,
 }
 
 /// The two competing players
 #[derive(Copy, Clone, PartialEq)]
 enum Player {
-  WhitePlayer,
-  BlackPlayer,
+  White,
+  Black,
 }
 
 /// The mode that the game is in.
@@ -40,14 +44,16 @@ enum Mode {
 
 use Tile::*;
 use Player::*;
+use Piece::*;
 
 impl Tile {
   /// Indicates which player the tile belongs to (if either)
   fn player(self) -> Option<Player> {
-    match self {
-      White | WhiteKing => Some(WhitePlayer),
-      Black | BlackKing => Some(BlackPlayer),
-      Empty => None,
+    if let Occupied(p, _) = self {
+      Some(p)
+    }
+    else {
+      None
     }
   }
 }
@@ -72,9 +78,9 @@ pub struct Checkers {
 
 fn possible_moves(tile : Tile) -> &'static [Pos] {
   match tile {
-    White => &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1}],
-    Black => &[Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
-    WhiteKing | BlackKing =>
+    Occupied(White, Pawn) => &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1}],
+    Occupied(Black, Pawn) => &[Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
+    Occupied(_, King) =>
       &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1},
         Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
     Empty => &[],
@@ -88,16 +94,16 @@ impl Checkers {
     for y in 0..3 {
       for i in (0..BOARD_SIZE).step_by(2) {
         let x = i + (y % 2);
-        board.set(Pos {x, y}, White);
+        board.set(Pos {x, y}, Occupied(White, Pawn));
       }
     }
     for y in (BOARD_SIZE-3)..BOARD_SIZE {
       for i in (0..BOARD_SIZE).step_by(2) {
         let x = i + (y % 2);
-        board.set(Pos{x, y}, Black);
+        board.set(Pos{x, y}, Occupied(Black, Pawn));
       }
     }
-    Checkers { board, active_player : WhitePlayer, mode: Mode::StartOfTurn }
+    Checkers { board, active_player : White, mode: Mode::StartOfTurn }
   }
 
   fn visit_jumps_from_pos(&self, start : Pos, mut f : impl FnMut(Action)) {
@@ -161,14 +167,14 @@ impl Checkers {
   fn king_check(&mut self, p : Pos) {
     let tile_value = self.board.get(p);
     match tile_value {
-      Tile::Black => {
+      Occupied(Black, Pawn) => {
         if p.y == 0 {
-          self.board.set(p, Tile::BlackKing);
+          self.board.set(p, Occupied(Black, King));
         }
       }
-      Tile::White => {
+      Occupied(White, Pawn) => {
         if p.y == BOARD_SIZE-1 {
-          self.board.set(p, Tile::WhiteKing);
+          self.board.set(p, Occupied(White, King));
         }
       }
       _ => (),
@@ -185,10 +191,10 @@ impl Checkers {
     let mut black = 0;
     for tile in self.board.iter() {
       match tile {
-        Tile::Black => black += 1,
-        Tile::BlackKing => black += 2,
-        Tile::White => white += 1,
-        Tile::WhiteKing => white += 2,
+        Occupied(Black, Pawn) => black += 1,
+        Occupied(Black, King) => black += 2,
+        Occupied(White, Pawn) => white += 1,
+        Occupied(White, King) => white += 2,
         Tile::Empty => (),
       }
     }
@@ -196,10 +202,8 @@ impl Checkers {
   }
 
   fn active_player_swap(&mut self) {
-    match self.active_player {
-      Player::WhitePlayer => self.active_player = Player::BlackPlayer,
-      Player::BlackPlayer => self.active_player = Player::WhitePlayer,
-    }
+    let p = match self.active_player { White => Black, Black => White };
+    self.active_player = p;
   }
 }
 
@@ -228,7 +232,7 @@ impl Game for Checkers {
 
   fn active_player(&self) -> i64 {
     match self.active_player {
-      WhitePlayer => 0, BlackPlayer => 1
+      White => 0, Black => 1
     }
   }
 
@@ -273,28 +277,10 @@ impl Game for Checkers {
 
   fn winner(&self) -> Option<i64> {
     match self.mode {
-      Mode::Victory(WhitePlayer) => Some(0),
-      Mode::Victory(BlackPlayer) => Some(1),
+      Mode::Victory(White) => Some(0),
+      Mode::Victory(Black) => Some(1),
       _ => None,
     }
-  }
-}
-
-impl fmt::Display for Checkers {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    for y in 0..BOARD_SIZE {
-      write!(f, "|")?;
-      for x in 0..BOARD_SIZE {
-        let s = match self.board.get(Pos{x, y}) {
-          Black => "b", BlackKing => "B",
-          White => "w", WhiteKing => "W",
-          Empty => " ",
-        };
-        write!(f, " {}", s)?;
-      }
-      writeln!(f, " |")?;
-    }
-    Ok(())
   }
 }
 
@@ -311,10 +297,10 @@ fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Contex
 
       let tile = game.board.get(Pos{x, y});
       let colour = match tile {
-        Tile::Black => Some([1.0, 0.0, 0.0, 1.0]),
-        Tile::White => Some([0.0, 1.0, 0.0, 1.0]),
-        Tile::BlackKing => Some([0.5, 0.0, 0.0, 1.0]),
-        Tile::WhiteKing => Some([0.0, 0.5, 0.0, 1.0]),
+        Occupied(Black, Pawn) => Some([1.0, 0.0, 0.0, 1.0]),
+        Occupied(White, Pawn) => Some([0.0, 1.0, 0.0, 1.0]),
+        Occupied(Black, King) => Some([0.5, 0.0, 0.0, 1.0]),
+        Occupied(White, King) => Some([0.0, 0.5, 0.0, 1.0]),
         Empty => None,
       };
       if let Some(c) = colour {
@@ -363,6 +349,7 @@ pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
   while let Some(event) = window.next() {
     if let Some(Button::Keyboard(key)) = event.press_args() {
       if key == Key::Space {
+        player_actions.clear();
         agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng);
       }
       if key == Key::Return {
