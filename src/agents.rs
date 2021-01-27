@@ -16,7 +16,7 @@ pub trait GameAgent<G : Game> : Clone {
   fn choose_action(&mut self, game: &G, rng: &mut StdRng) -> Option<G::Action>;
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct RandomAgent {}
 
 impl <G : Game> GameAgent<G> for RandomAgent {
@@ -52,7 +52,7 @@ pub fn agent_action<A, B, G>(a : &mut A, b : &mut B, g : &mut G, rng: &mut StdRn
   }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct RolloutAgent {
   pub iterations : i64,
   pub depth : i64,

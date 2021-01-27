@@ -35,7 +35,7 @@ pub struct TicTacToe {
 
 impl TicTacToe {
 
-  fn new(size : i32, length_to_win : i32) -> TicTacToe {
+  pub fn new(size : i32, length_to_win : i32) -> TicTacToe {
     let board = Board::new(None, size);
     TicTacToe { board, active_player : WhitePlayer, length_to_win, victory: None }
   }

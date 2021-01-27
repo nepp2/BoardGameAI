@@ -26,14 +26,13 @@ enum Player {
 /// The mode that the game is in.
 #[derive(Copy, Clone, PartialEq)]
 enum Mode {
-  /// Active player can choose any move
+  /// The active player can choose any move
   StartOfTurn,
 
-  /// This exists to cope with the fact that players must
-  /// sometimes take multiple actions in one turn; if they
-  /// capture a piece, they must continue using the same
-  /// piece to capture any other pieces available.
-  Chain(Pos),
+  /// The active player has captured a piece, but must
+  /// continue capturing with the same piece until no
+  /// more pieces can be captured.
+  ChainCapture(Pos),
 
   /// One of the players won
   Victory(Player),
@@ -71,6 +70,17 @@ pub struct Checkers {
   mode : Mode,
 }
 
+fn possible_moves(tile : Tile) -> &'static [Pos] {
+  match tile {
+    White => &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1}],
+    Black => &[Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
+    WhiteKing | BlackKing =>
+      &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1},
+        Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
+    Empty => &[],
+  }
+}
+
 impl Checkers {
 
   pub fn new() -> Checkers {
@@ -90,38 +100,47 @@ impl Checkers {
     Checkers { board, active_player : WhitePlayer, mode: Mode::StartOfTurn }
   }
 
-  fn actions_from_pos(&self, start : Pos, actions : &mut Vec<Action>, find_steps : &mut bool) {
+  fn visit_jumps_from_pos(&self, start : Pos, mut f : impl FnMut(Action)) {
     let start_tile = self.board.get(start);
-    let possible_moves : &[Pos] = match start_tile {
-      White => &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1}],
-      Black => &[Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
-      WhiteKing | BlackKing =>
-        &[Pos {x: -1, y: 1}, Pos {x: 1, y: 1},
-          Pos {x: -1, y: -1}, Pos {x: 1, y: -1}],
-      Empty => &[],
-    };
-    for m in possible_moves {
+    let player = start_tile.player().unwrap();
+    for m in possible_moves(start_tile) {
       let pos = start + *m;
-      if let Some(t) = self.board.try_get(pos) {
-        match t.player() {
-          Some(p) => {
-            if p != start_tile.player().unwrap() {
-              let jump = pos + *m;
-              if let Some(Tile::Empty) = self.board.try_get(jump) {
-                if *find_steps {
-                  actions.clear();
-                  *find_steps = false;
-                }
-                actions.push(Action::Jump{ from: start, capture: pos, to: jump});
-              }
-            }
-          }
-          None => {
-            if *find_steps {
-              actions.push(Action::Step{ from: start, to: pos});
-            }
+      if let Some(p) = self.board.try_get(pos).and_then(|t| t.player()) {
+        if p != player {
+          let jump = pos + *m;
+          if let Some(Empty) = self.board.try_get(jump) {
+            let a = Action::Jump{ from: start, capture: pos, to: jump};
+            f(a);
           }
         }
+      }
+    }
+  }
+
+  fn find_jumps_from_pos(&self, start : Pos, actions : &mut Vec<Action>) {
+    self.visit_jumps_from_pos(start, |a| {
+      actions.push(a);
+    });
+  }
+
+  fn find_steps_from_pos(&self, start : Pos, actions : &mut Vec<Action>) {
+    let start_tile = self.board.get(start);
+    for m in possible_moves(start_tile) {
+      let pos = start + *m;
+      if let Some(Empty) = self.board.try_get(pos) {
+        actions.push(Action::Step{ from: start, to: pos});
+      }
+    }
+  }
+
+  fn visit_player_pieces(&self, player : Player, mut f : impl FnMut(Pos)) {
+    for (i, t) in self.board.iter().enumerate() {
+      if t.player() == Some(player) {
+        let p = Pos {
+          x: (i as i32) % BOARD_SIZE,
+          y: (i as i32) / BOARD_SIZE,
+        };
+        f(p);
       }
     }
   }
@@ -129,9 +148,11 @@ impl Checkers {
   /// Return true if the piece at pos can capture a piece
   /// in its next move
   fn can_capture_a_piece(&mut self, p : Pos) -> bool {
-    let mut actions = vec!();
-    self.actions_from_pos(p, &mut actions, &mut false);
-    actions.len() > 0
+    let mut can_capture = false;
+    self.visit_jumps_from_pos(p, |_a| {
+      can_capture = true;
+    });
+    can_capture
   }
 
   /// Turn the tile at `pos` into a king if it is
@@ -188,18 +209,18 @@ impl Game for Checkers {
   fn possible_actions(&self, actions : &mut Vec<Action>) {
     match self.mode {
       Mode::StartOfTurn => {
-        let mut find_steps = true;
-        for (i, p) in self.board.iter().enumerate() {
-          if p.player() == Some(self.active_player) {
-            let x = (i as i32) % BOARD_SIZE;
-            let y = (i as i32) / BOARD_SIZE;
-            let p = Pos{ x, y };
-            self.actions_from_pos(p, actions, &mut find_steps);
-          }
+        let p = self.active_player;
+        self.visit_player_pieces(p, |pos| {
+          self.find_jumps_from_pos(pos, actions);
+        });
+        if actions.is_empty() {
+          self.visit_player_pieces(p, |pos| {
+            self.find_steps_from_pos(pos, actions);
+          });
         }
       }
-      Mode::Chain(p) => {
-        self.actions_from_pos(p, actions, &mut false);
+      Mode::ChainCapture(p) => {
+        self.find_jumps_from_pos(p, actions);
       }
       Mode::Victory(_) => (),
     }
@@ -228,7 +249,7 @@ impl Game for Checkers {
         self.board.set(to, tile_value);
         self.king_check(to);
         if self.can_capture_a_piece(to) {
-          self.mode = Mode::Chain(to);
+          self.mode = Mode::ChainCapture(to);
         }
         else {
           self.active_player_swap();
@@ -276,7 +297,6 @@ impl fmt::Display for Checkers {
     Ok(())
   }
 }
-
 
 fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Context, graphics : &mut G2d) {
   clear([1.0; 4], graphics);
@@ -373,7 +393,7 @@ pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
                 loop {
                   // loop to complete chains, if needed
                   if agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng) {
-                    if let Mode::Chain(_) = game.mode {
+                    if let Mode::ChainCapture(_) = game.mode {
                       continue;
                     }
                   }

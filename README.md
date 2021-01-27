@@ -13,7 +13,7 @@ This is a small demo application featuring:
 
 https://www.rust-lang.org/tools/install
 
-**Optional**: Install an editor with Rust support, like VS Code and its `Rust (rls)` extension. Alternatively just use any simple code editor.
+**Optional**: Install an editor with Rust support, like VS Code and its Rust extension. Alternatively just use any simple code editor.
 
 ## Download the workshop
 
@@ -23,23 +23,25 @@ e.g. open a terminal and run `git clone https://github.com/nepp2/rust_workshop`
 
 Navigate to the project folder (which contains the `Cargo.toml` file).
 
-Type `cargo build --release`.
+Type `cargo build`.
 
-(This is an optimised build. For a debug build, try `cargo build`)
+(This is a debug build. For an optimised build, try `cargo build --release`)
 
 ## Run something
 
 Try one of the following commands:
 
-* `cargo run --release checkers`
+* `cargo run checkers`
   * Opens graphical checkers game
   * Play manually with the mouse
   * Press Space to trigger an AI move
-* `cargo run --release tictactoe`
+* `cargo run tictactoe`
   * Opens graphical tictactoe
   * Similar controls to checkers
-* `cargo run --release contest`
+* `cargo run contest`
   * Two agents play 100 games of checkers against each other
+
+(Again, for an optimised build, try `cargo run --release contest`)
 
 ## Troubleshooting
 
