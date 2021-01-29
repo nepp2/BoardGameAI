@@ -2,34 +2,40 @@
 use piston_window::*;
 use rand::{SeedableRng, rngs::StdRng};
 
-use crate::utils::*;
-use crate::agents::*;
+use crate::utils::Pos;
 
-
-/// Holds the contents of a tile
-#[derive(Copy, Clone, PartialEq)]
-enum Tile {
-  Occupied(Player, Piece),
-  Empty,
+/// Represents the state of a checkers game
+#[derive(Clone)]
+pub struct Checkers {
+  pub tiles : [Tile ; 64],
+  pub active_player : Player,
+  pub mode : Mode,
 }
 
 /// Holds the contents of a tile
 #[derive(Copy, Clone, PartialEq)]
-enum Piece {
+pub enum Tile {
+  Occupied(Player, Piece),
+  Empty,
+}
+
+/// Describes the type of a piece
+#[derive(Copy, Clone, PartialEq)]
+pub enum Piece {
   Pawn,
   King,
 }
 
 /// The two competing players
 #[derive(Copy, Clone, PartialEq)]
-enum Player {
+pub enum Player {
   White,
   Black,
 }
 
 /// The mode that the game is in.
 #[derive(Copy, Clone, PartialEq)]
-enum Mode {
+pub enum Mode {
   /// The active player can choose any move
   StartOfTurn,
 
@@ -61,19 +67,10 @@ impl Tile {
 /// The size of the board (which is assumed to be square)
 const BOARD_SIZE : i32 = 8;
 
-type Board = crate::utils::Board<Tile>;
-
 #[derive(Debug, Copy, Clone)]
 pub enum Action {
   Step { from : Pos, to : Pos },
   Jump { from : Pos, capture : Pos, to : Pos },
-}
-
-#[derive(Clone)]
-pub struct Checkers {
-  board : Board,
-  active_player : Player,
-  mode : Mode,
 }
 
 fn possible_moves(tile : Tile) -> &'static [Pos] {
@@ -87,34 +84,57 @@ fn possible_moves(tile : Tile) -> &'static [Pos] {
   }
 }
 
+fn coord_index(x : i32, y : i32) -> usize {
+  (y * BOARD_SIZE + x) as usize
+}
+
+fn pos_index(p : Pos) -> usize {
+  coord_index(p.x, p.y)
+}
+
 impl Checkers {
 
   pub fn new() -> Checkers {
-    let mut board = Board::new(Tile::Empty, BOARD_SIZE);
+    let mut board = [Tile::Empty ; 64];
     for y in 0..3 {
       for i in (0..BOARD_SIZE).step_by(2) {
         let x = i + (y % 2);
-        board.set(Pos {x, y}, Occupied(White, Pawn));
+        board[coord_index(x, y)] = Occupied(White, Pawn);
       }
     }
     for y in (BOARD_SIZE-3)..BOARD_SIZE {
       for i in (0..BOARD_SIZE).step_by(2) {
         let x = i + (y % 2);
-        board.set(Pos{x, y}, Occupied(Black, Pawn));
+        board[coord_index(x, y)] = Occupied(Black, Pawn);
       }
     }
-    Checkers { board, active_player : White, mode: Mode::StartOfTurn }
+    Checkers { tiles: board, active_player : White, mode: Mode::StartOfTurn }
+  }
+
+  fn set_tile(&mut self, p : Pos, tile : Tile) {
+    self.tiles[pos_index(p)] = tile;
+  }
+
+  fn get_tile(&self, p : Pos) -> Tile {
+    self.tiles[pos_index(p)]
+  }
+
+  fn try_get_tile(&self, p : Pos) -> Option<Tile> {
+    if p.x >= 0 && p.x < BOARD_SIZE && p.y >= 0 && p.y < BOARD_SIZE {
+      Some(self.get_tile(p))
+    }
+    else { None }
   }
 
   fn visit_jumps_from_pos(&self, start : Pos, mut f : impl FnMut(Action)) {
-    let start_tile = self.board.get(start);
+    let start_tile = self.get_tile(start);
     let player = start_tile.player().unwrap();
     for m in possible_moves(start_tile) {
       let pos = start + *m;
-      if let Some(p) = self.board.try_get(pos).and_then(|t| t.player()) {
+      if let Some(p) = self.try_get_tile(pos).and_then(|t| t.player()) {
         if p != player {
           let jump = pos + *m;
-          if let Some(Empty) = self.board.try_get(jump) {
+          if let Some(Empty) = self.try_get_tile(jump) {
             let a = Action::Jump{ from: start, capture: pos, to: jump};
             f(a);
           }
@@ -130,17 +150,17 @@ impl Checkers {
   }
 
   fn find_steps_from_pos(&self, start : Pos, actions : &mut Vec<Action>) {
-    let start_tile = self.board.get(start);
+    let start_tile = self.get_tile(start);
     for m in possible_moves(start_tile) {
       let pos = start + *m;
-      if let Some(Empty) = self.board.try_get(pos) {
+      if let Some(Empty) = self.try_get_tile(pos) {
         actions.push(Action::Step{ from: start, to: pos});
       }
     }
   }
 
   fn visit_player_pieces(&self, player : Player, mut f : impl FnMut(Pos)) {
-    for (i, t) in self.board.iter().enumerate() {
+    for (i, t) in self.tiles.iter().enumerate() {
       if t.player() == Some(player) {
         let p = Pos {
           x: (i as i32) % BOARD_SIZE,
@@ -165,16 +185,16 @@ impl Checkers {
   /// currently a normal piece, and just reached the
   /// final row at the other end of the board
   fn king_check(&mut self, p : Pos) {
-    let tile_value = self.board.get(p);
+    let tile_value = self.get_tile(p);
     match tile_value {
       Occupied(Black, Pawn) => {
         if p.y == 0 {
-          self.board.set(p, Occupied(Black, King));
+          self.set_tile(p, Occupied(Black, King));
         }
       }
       Occupied(White, Pawn) => {
         if p.y == BOARD_SIZE-1 {
-          self.board.set(p, Occupied(White, King));
+          self.set_tile(p, Occupied(White, King));
         }
       }
       _ => (),
@@ -189,7 +209,7 @@ impl Checkers {
   fn piece_count(&self) -> (i32, i32) {
     let mut white = 0;
     let mut black = 0;
-    for tile in self.board.iter() {
+    for tile in self.tiles.iter() {
       match tile {
         Occupied(Black, Pawn) => black += 1,
         Occupied(Black, King) => black += 2,
@@ -206,6 +226,10 @@ impl Checkers {
     self.active_player = p;
   }
 }
+
+// --------- Implement the generic boardgame trait to allow agents to play ---------
+
+use crate::agents::{Game, GameAgent, agent_action};
 
 impl Game for Checkers {
   type Action = Action;
@@ -239,18 +263,18 @@ impl Game for Checkers {
   fn apply_action(&mut self, a : &Action) {
     match *a {
       Action::Step { from, to } => {
-        let tile_value = self.board.get(from);
-        self.board.set(from, Tile::Empty);
-        self.board.set(to, tile_value);
+        let tile_value = self.get_tile(from);
+        self.set_tile(from, Tile::Empty);
+        self.set_tile(to, tile_value);
         self.king_check(to);
         self.active_player_swap();
         self.mode = Mode::StartOfTurn;
       }
       Action::Jump { from, capture, to } => {
-        let tile_value = self.board.get(from);
-        self.board.set(from, Tile::Empty);
-        self.board.set(capture, Tile::Empty);
-        self.board.set(to, tile_value);
+        let tile_value = self.get_tile(from);
+        self.set_tile(from, Tile::Empty);
+        self.set_tile(capture, Tile::Empty);
+        self.set_tile(to, tile_value);
         self.king_check(to);
         if self.can_capture_a_piece(to) {
           self.mode = Mode::ChainCapture(to);
@@ -295,7 +319,7 @@ fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Contex
         context.transform,
         graphics);
 
-      let tile = game.board.get(Pos{x, y});
+      let tile = game.get_tile(Pos{x, y});
       let colour = match tile {
         Occupied(Black, Pawn) => Some([1.0, 0.0, 0.0, 1.0]),
         Occupied(White, Pawn) => Some([0.0, 1.0, 0.0, 1.0]),
@@ -331,13 +355,13 @@ fn draw_checkers(game : &Checkers, player_actions : &[Action], context : &Contex
   }
 }
 
+/// Load a graphical, interactive checkers game
 pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
   where A : GameAgent<Checkers>, B : GameAgent<Checkers>
 {
-
   println!("Checkers!");
   let mut game = Checkers::new();
-  let mut rng = StdRng::from_entropy(); //StdRng::seed_from_u64(0);
+  let mut rng = StdRng::from_entropy();
 
   let mut window: PistonWindow =
     WindowSettings::new("Checkers", [480, 480])
@@ -364,7 +388,7 @@ pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
       let x = (mouse_pos[0] / 60.0) as i32;
       let y = (mouse_pos[1] / 60.0) as i32;
       let pos = Pos{x, y};
-      match game.board.get(pos) {
+      match game.get_tile(pos) {
         // Player clicked an empty tile
         Tile::Empty => {
           for a in player_actions.iter().cloned() {
@@ -378,8 +402,8 @@ pub fn play_checkers<A, B>(mut agent_a : A, mut agent_b : B)
               // AI response
               if game.mode == Mode::StartOfTurn {
                 loop {
-                  // loop to complete chains, if needed
                   if agent_action(&mut agent_a, &mut agent_b, &mut game, &mut rng) {
+                    // loop to complete chains, if needed
                     if let Mode::ChainCapture(_) = game.mode {
                       continue;
                     }

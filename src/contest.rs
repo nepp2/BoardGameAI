@@ -9,7 +9,8 @@ pub fn run_contest<A, B, G>(g : G, a : A, b : B)
     B : GameAgent<G>  + Send + Sync,
     G : Game + Send + Sync
 {
-  let mut games = vec![ g.clone() ; 100 ];  
+  let total_games = 100;
+  let mut games = vec![ g.clone() ; total_games ];  
   let winners = games.par_iter_mut()
     .map(move |g| {
       let mut rng = StdRng::from_entropy();
@@ -23,6 +24,7 @@ pub fn run_contest<A, B, G>(g : G, a : A, b : B)
     }).collect::<Vec<_>>();
   let p1_wins = winners.iter().filter(|&&w| w == Some(0)).count();
   let p2_wins = winners.iter().filter(|&&w| w == Some(1)).count();
-  println!("P1 wins: {}, P2 wins: {}", p1_wins, p2_wins);
+  println!("P1 wins: {}, P2 wins: {}, Draws: {}",
+    p1_wins, p2_wins, total_games - (p1_wins + p2_wins));
 }
 

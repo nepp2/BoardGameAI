@@ -1,6 +1,7 @@
 
 use std::ops::{Add, AddAssign, Neg};
 
+/// an integer (X, Y) coordinate
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Pos {
   pub x: i32,

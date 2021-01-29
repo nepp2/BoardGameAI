@@ -5,9 +5,11 @@ mod chess;
 mod tic_tac_toe;
 mod agents;
 mod contest;
+mod exercise;
 
 use std::env;
 use agents::{RandomAgent, RolloutAgent};
+use checkers::Checkers;
 
 fn main() {
   let random_agent = RandomAgent{};
@@ -19,7 +21,7 @@ fn main() {
   if let Some(arg) = env::args().nth(1) {
     match arg.as_str() {
       "contest" => {
-        contest::run_contest(tic_tac_toe::TicTacToe::new(3, 3), rollout_broad, rollout_deep);
+        contest::run_contest(Checkers::new(), rollout_broad, rollout_deep);
       }
       "tictactoe" => {
         tic_tac_toe::play_game(rollout_broad, rollout_weak);
