@@ -3,6 +3,9 @@ use piston_window::*;
 use rand::{SeedableRng, rngs::StdRng};
 
 use crate::utils::Pos;
+use crate::agents::{Game, GameAgent, agent_action};
+
+// --------- Define the checkers data structure ----------
 
 /// Represents the state of a checkers game
 #[derive(Clone)]
@@ -47,6 +50,8 @@ pub enum Mode {
   /// One of the players won
   Victory(Player),
 }
+
+// --------- Implement game logic ----------
 
 use Tile::*;
 use Player::*;
@@ -227,10 +232,7 @@ impl Checkers {
   }
 }
 
-// --------- Implement the generic boardgame trait to allow agents to play ---------
-
-use crate::agents::{Game, GameAgent, agent_action};
-
+// implement the generic boardgame trait to allow agents to play
 impl Game for Checkers {
   type Action = Action;
 
